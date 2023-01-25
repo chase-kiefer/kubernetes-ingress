@@ -78,6 +78,9 @@ type Server struct {
 	VSNamespace               string
 	VSName                    string
 	DisableIPV6               bool
+	SpiffeCerts               bool
+	SpiffeCertsEgress         bool
+	InternalRoutes            bool
 }
 
 // SSL defines SSL configuration for a server.

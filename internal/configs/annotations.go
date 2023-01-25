@@ -388,6 +388,21 @@ func parseAnnotations(ingEx *IngressEx, baseCfgParams *ConfigParams, isPlus bool
 	return cfgParams
 }
 
+func parseVirtualServerAnnotations(virtualServerEx *VirtualServerEx, enableInternalRoutes bool) ConfigParams {
+	cfgParams := ConfigParams{}
+
+	if enableInternalRoutes {
+		if spiffeServerCerts, exists, err := GetMapKeyAsBool(virtualServerEx.VirtualServer.Annotations, nginxMeshInternalRouteAnnotation, virtualServerEx.VirtualServer); exists {
+			if err != nil {
+				glog.Error(err)
+			} else {
+				cfgParams.SpiffeServerCerts = spiffeServerCerts
+			}
+		}
+	}
+	return cfgParams
+}
+
 func getWebsocketServices(ingEx *IngressEx) map[string]bool {
 	if value, exists := ingEx.Ingress.Annotations["nginx.org/websocket-services"]; exists {
 		return ParseServiceList(value)

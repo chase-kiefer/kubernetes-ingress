@@ -121,6 +121,7 @@ type Configurator struct {
 	latencyCollector        latCollector.LatencyCollector
 	isLatencyMetricsEnabled bool
 	isReloadsEnabled        bool
+	isInternalRoutesEnabled bool
 }
 
 // NewConfigurator creates a new Configurator.
@@ -542,7 +543,7 @@ func (cnf *Configurator) addOrUpdateVirtualServer(virtualServerEx *VirtualServer
 	name := getFileNameForVirtualServer(virtualServerEx.VirtualServer)
 
 	vsc := newVirtualServerConfigurator(cnf.cfgParams, cnf.isPlus, cnf.IsResolverConfigured(), cnf.staticCfgParams, cnf.isWildcardEnabled)
-	vsCfg, warnings := vsc.GenerateVirtualServerConfig(virtualServerEx, apResources, dosResources)
+	vsCfg, warnings := vsc.GenerateVirtualServerConfig(virtualServerEx, cnf.staticCfgParams, apResources, dosResources)
 	content, err := cnf.templateExecutorV2.ExecuteVirtualServerTemplate(&vsCfg)
 	if err != nil {
 		return warnings, fmt.Errorf("error generating VirtualServer config: %v: %w", name, err)

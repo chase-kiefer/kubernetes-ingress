@@ -234,6 +234,7 @@ type virtualServerConfigurator struct {
 	spiffeCerts          bool
 	oidcPolCfg           *oidcPolicyCfg
 	isIPV6Disabled       bool
+	egressPossible       bool
 }
 
 type oidcPolicyCfg struct {
@@ -303,6 +304,7 @@ func (vsc *virtualServerConfigurator) generateEndpointsForUpstream(
 // GenerateVirtualServerConfig generates a full configuration for a VirtualServer
 func (vsc *virtualServerConfigurator) GenerateVirtualServerConfig(
 	vsEx *VirtualServerEx,
+	staticParams *StaticConfigParams,
 	apResources *appProtectResourcesForVS,
 	dosResources map[string]*appProtectDosResource,
 ) (version2.VirtualServerConfig, Warnings) {
@@ -326,6 +328,8 @@ func (vsc *virtualServerConfigurator) GenerateVirtualServerConfig(
 	policiesCfg := vsc.generatePolicies(ownerDetails, vsEx.VirtualServer.Spec.Policies, vsEx.Policies, specContext, policyOpts)
 
 	dosCfg := generateDosCfg(dosResources[""])
+
+	cfgParams := parseVirtualServerAnnotations(vsEx, staticParams.EnableInternalRoutes)
 
 	// crUpstreams maps an UpstreamName to its conf_v1.Upstream as they are generated
 	// necessary for generateLocation to know what Upstream each Location references
@@ -355,7 +359,7 @@ func (vsc *virtualServerConfigurator) GenerateVirtualServerConfig(
 		ups := vsc.generateUpstream(vsEx.VirtualServer, upstreamName, u, isExternalNameSvc, endpoints)
 		upstreams = append(upstreams, ups)
 
-		u.TLS.Enable = isTLSEnabled(u, vsc.spiffeCerts)
+		u.TLS.Enable = isTLSEnabled(u, vsc.spiffeCerts, cfgParams.SpiffeServerCerts)
 		crUpstreams[upstreamName] = u
 
 		if hc := generateHealthCheck(u, upstreamName, vsc.cfgParams); hc != nil {
@@ -384,7 +388,7 @@ func (vsc *virtualServerConfigurator) GenerateVirtualServerConfig(
 			_, isExternalNameSvc := vsEx.ExternalNameSvcs[GenerateExternalNameSvcKey(upstreamNamespace, u.Service)]
 			ups := vsc.generateUpstream(vsr, upstreamName, u, isExternalNameSvc, endpoints)
 			upstreams = append(upstreams, ups)
-			u.TLS.Enable = isTLSEnabled(u, vsc.spiffeCerts)
+			u.TLS.Enable = isTLSEnabled(u, vsc.spiffeCerts, cfgParams.SpiffeServerCerts)
 			crUpstreams[upstreamName] = u
 
 			if hc := generateHealthCheck(u, upstreamName, vsc.cfgParams); hc != nil {
@@ -675,6 +679,8 @@ func (vsc *virtualServerConfigurator) GenerateVirtualServerConfig(
 			VSNamespace:               vsEx.VirtualServer.Namespace,
 			VSName:                    vsEx.VirtualServer.Name,
 			DisableIPV6:               vsc.isIPV6Disabled,
+			SpiffeCerts:               vsc.spiffeCerts,
+			SpiffeCertsEgress:         cfgParams.SpiffeServerCerts,
 		},
 		SpiffeCerts: vsc.spiffeCerts,
 	}
@@ -1548,6 +1554,7 @@ func generateProxyPassRewrite(path string, proxy *conf_v1.ActionProxy, internal 
 }
 
 func generateProxyPass(tlsEnabled bool, upstreamName string, internal bool, proxy *conf_v1.ActionProxy) string {
+	glog.Warningf("creating proxy pass for: %s and see tlsEnabled set to: %b", upstreamName, tlsEnabled)
 	proxyPass := fmt.Sprintf("%v://%v", generateProxyPassProtocol(tlsEnabled), upstreamName)
 
 	if internal && (proxy == nil || proxy.RewritePath == "") {
@@ -2443,7 +2450,10 @@ func generateProxySSLName(svcName, ns string) string {
 	return fmt.Sprintf("%s.%s.svc", svcName, ns)
 }
 
-func isTLSEnabled(u conf_v1.Upstream, spiffeCerts bool) bool {
+func isTLSEnabled(u conf_v1.Upstream, spiffeCerts bool, spiffeEgress bool) bool {
+	if spiffeEgress {
+		return false
+	}
 	return u.TLS.Enable || spiffeCerts
 }
 

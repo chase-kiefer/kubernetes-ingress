@@ -40,9 +40,44 @@ limit_req_zone {{ $z.Key }} zone={{ $z.ZoneName }}:{{ $z.ZoneSize }} rate={{ $z.
 
 {{ $s := .Server }}
 server {
+
+    {{if $s.SpiffeCertsEgress}}
+    listen 443 ssl;
+    {{if not $s.DisableIPV6}}listen [::]:443 ssl;{{end}}
+    ssl_certificate /etc/nginx/secrets/spiffe_cert.pem;
+    ssl_certificate_key /etc/nginx/secrets/spiffe_key.pem;
+    {{else}}
+    {{if not $s.GRPCOnly}}
+    {{range $port := $s.Ports}}
+    listen {{$port}}{{if $s.ProxyProtocol}} proxy_protocol{{end}};
+    {{if not $s.DisableIPV6}}listen [::]:{{$port}}{{if $s.ProxyProtocol}} proxy_protocol{{end}};{{end}}
+    {{- end}}
+    {{end}}
+
+    {{if $s.SSL}}
+    {{if $s.TLSPassthrough}}
+    listen unix:/var/lib/nginx/passthrough-https.sock ssl{{if $s.HTTP2}} http2{{end}} proxy_protocol;
+    set_real_ip_from unix:;
+    real_ip_header proxy_protocol;
+    {{else}}
+    {{- range $port := $s.SSLPorts}}
+    listen {{$port}} ssl{{if $s.HTTP2}} http2{{end}}{{if $s.ProxyProtocol}} proxy_protocol{{end}};
+    {{if not $s.DisableIPV6}}listen [::]:{{$port}} ssl{{if $s.HTTP2}} http2{{end}}{{if $s.ProxyProtocol}} proxy_protocol{{end}};{{end}}
+    {{- end}}
+    {{end}}
+    {{if $s.SSLRejectHandshake}}
+    ssl_reject_handshake on;
+    {{else}}
+    ssl_certificate {{$s.SSLCertificate}};
+    ssl_certificate_key {{$s.SSLCertificateKey}};
+    {{end}}
+    {{end}}
+    {{end}}
+
+    {{ if not $s.SpiffeCerts}}
     listen 80{{ if $s.ProxyProtocol }} proxy_protocol{{ end }};
     {{ if not $s.DisableIPV6 }}listen [::]:80{{ if $s.ProxyProtocol }} proxy_protocol{{ end }};{{ end }}
-
+    {{ end }}
     server_name {{ $s.ServerName }};
 
     set $resource_type "virtualserver";
@@ -356,6 +391,15 @@ server {
             {{ end }}
             {{ range $h := $l.AddHeaders }}
         add_header {{ $h.Name }} "{{ $h.Value }}" {{ if $h.Always }}always{{ end }};
+            {{ end }}
+            {{ if $.SpiffeCerts }}
+            {{ $proxyOrGRPC }}_ssl_certificate /etc/nginx/secrets/spiffe_cert.pem;
+            {{ $proxyOrGRPC }}_ssl_certificate_key /etc/nginx/secrets/spiffe_key.pem;
+            {{ $proxyOrGRPC }}_ssl_trusted_certificate /etc/nginx/secrets/spiffe_rootca.pem;
+            {{ $proxyOrGRPC }}_ssl_server_name on;
+            {{ $proxyOrGRPC }}_ssl_verify on;
+            {{ $proxyOrGRPC }}_ssl_verify_depth 25;
+            {{ $proxyOrGRPC }}_ssl_name {{ $l.ProxySSLName }};
             {{ end }}
             {{if $l.GRPCPass}}
         grpc_pass {{ $l.GRPCPass }};
